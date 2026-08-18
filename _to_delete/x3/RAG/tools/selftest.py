@@ -1,0 +1,724 @@
+"""
+Offline self-test.
+
+Runs the entire RAG pipeline against canned NCBI responses, so you can verify
+chunking, embedding, hybrid retrieval, document rollup, answer generation and
+every Flask route without touching the network.
+
+Usage (from the project root):
+    python tools/selftest.py
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+# Use a throwaway database so the real cache is never polluted.
+_TMP = tempfile.mkdtemp(prefix="pubmed_rag_selftest_")
+os.environ["RAG_DATA_DIR"] = _TMP
+
+from config import config  # noqa: E402
+from rag import pubmed_client as pc  # noqa: E402
+
+# --------------------------------------------------------------------------- #
+# Canned NCBI payloads (shape-identical to the real E-utilities responses)
+# --------------------------------------------------------------------------- #
+ESEARCH_JSON = {
+    "esearchresult": {
+        "count": "18452",
+        "retmax": "4",
+        "idlist": ["31456127", "36527918", "29276734", "34567890"],
+        "translationset": [
+            {"from": "gut microbiota",
+             "to": '"gastrointestinal microbiome"[MeSH Terms] OR gut microbiota[All Fields]'},
+            {"from": "depression",
+             "to": '"depression"[MeSH Terms] OR "depressive disorder"[MeSH Terms]'},
+        ],
+        "querytranslation": (
+            '("gastrointestinal microbiome"[MeSH Terms] OR gut microbiota[All Fields]) '
+            'AND ("depression"[MeSH Terms] OR "depressive disorder"[MeSH Terms])'
+        ),
+    }
+}
+
+
+def _article(pmid, title, abstract, journal, year, volume, issue, pages,
+             mesh, authors):
+    mesh_xml = "".join(
+        f"<MeshHeading><DescriptorName MajorTopicYN='N'>{m}</DescriptorName></MeshHeading>"
+        for m in mesh
+    )
+    auth_xml = "".join(
+        f"<Author><LastName>{a[0]}</LastName><Initials>{a[1]}</Initials></Author>"
+        for a in authors
+    )
+    return f"""
+  <PubmedArticle>
+    <MedlineCitation>
+      <PMID Version="1">{pmid}</PMID>
+      <Article PubModel="Print">
+        <Journal>
+          <ISOAbbreviation>{journal}</ISOAbbreviation>
+          <JournalIssue>
+            <Volume>{volume}</Volume>
+            <Issue>{issue}</Issue>
+            <PubDate><Year>{year}</Year><Month>Mar</Month></PubDate>
+          </JournalIssue>
+        </Journal>
+        <ArticleTitle>{title}</ArticleTitle>
+        <Pagination><MedlinePgn>{pages}</MedlinePgn></Pagination>
+        <Abstract>{abstract}</Abstract>
+        <AuthorList>{auth_xml}</AuthorList>
+        <PublicationTypeList>
+          <PublicationType>Journal Article</PublicationType>
+        </PublicationTypeList>
+      </Article>
+      <MeshHeadingList>{mesh_xml}</MeshHeadingList>
+    </MedlineCitation>
+    <PubmedData>
+      <ArticleIdList>
+        <ArticleId IdType="pubmed">{pmid}</ArticleId>
+        <ArticleId IdType="doi">10.1000/test.{pmid}</ArticleId>
+      </ArticleIdList>
+    </PubmedData>
+  </PubmedArticle>"""
+
+
+EFETCH_XML = ("<?xml version='1.0'?><PubmedArticleSet>" + "".join([
+    _article(
+        "31456127",
+        "The gut-brain axis: microbial regulation of depressive behaviour",
+        "<AbstractText Label='BACKGROUND' NlmCategory='BACKGROUND'>Accumulating evidence "
+        "links the intestinal microbiome to mood regulation through the gut-brain axis."
+        "</AbstractText>"
+        "<AbstractText Label='METHODS' NlmCategory='METHODS'>We performed 16S rRNA "
+        "sequencing on faecal samples from 212 patients with major depressive disorder "
+        "and 210 matched healthy controls, and correlated taxa abundance with HAM-D "
+        "scores.</AbstractText>"
+        "<AbstractText Label='RESULTS' NlmCategory='RESULTS'>Patients showed reduced "
+        "Faecalibacterium and Coprococcus abundance. Lower short-chain fatty acid "
+        "producers were associated with higher symptom severity (r = -0.41, p &lt; 0.001). "
+        "Serum inflammatory markers partially mediated this association.</AbstractText>"
+        "<AbstractText Label='CONCLUSIONS' NlmCategory='CONCLUSIONS'>Depleted "
+        "butyrate-producing bacteria are associated with depressive symptom severity, "
+        "supporting a microbiota-inflammation-mood pathway.</AbstractText>",
+        "Nat Microbiol", "2019", "4", "6", "623-32",
+        ["Gastrointestinal Microbiome", "Depressive Disorder, Major", "Brain-Gut Axis",
+         "Fatty Acids, Volatile"],
+        [("Valles-Colomer", "M"), ("Falony", "G"), ("Raes", "J")],
+    ),
+    _article(
+        "36527918",
+        "Probiotic supplementation and depressive symptoms: a randomised controlled trial",
+        "<AbstractText Label='OBJECTIVE'>To test whether an eight-week multi-strain "
+        "probiotic reduces depressive symptoms as an adjunct to standard antidepressant "
+        "therapy.</AbstractText>"
+        "<AbstractText Label='RESULTS'>In 147 randomised adults, the probiotic arm "
+        "showed a greater reduction in HAM-D score than placebo (mean difference -2.8, "
+        "95% CI -4.1 to -1.5). Effects were largest in participants with elevated "
+        "baseline inflammation.</AbstractText>"
+        "<AbstractText Label='CONCLUSIONS'>Adjunctive probiotics produced a modest but "
+        "significant improvement in depressive symptoms.</AbstractText>",
+        "JAMA Psychiatry", "2023", "80", "1", "44-52",
+        ["Probiotics", "Depression", "Randomized Controlled Trial as Topic"],
+        [("Schaub", "A"), ("Lang", "U")],
+    ),
+    _article(
+        "29276734",
+        "Vagal signalling mediates microbiota effects on anxiety-like behaviour in mice",
+        "<AbstractText>Germ-free mice display altered anxiety-like behaviour that is "
+        "normalised by colonisation with a conventional microbiota. Subdiaphragmatic "
+        "vagotomy abolished the behavioural effect of Lactobacillus rhamnosus, "
+        "demonstrating that vagal afferents are required for microbial modulation of "
+        "central GABA receptor expression and stress reactivity.</AbstractText>",
+        "Proc Natl Acad Sci U S A", "2018", "115", "12", "3047-52",
+        ["Vagus Nerve", "Gastrointestinal Microbiome", "Anxiety", "Mice"],
+        [("Bravo", "J"), ("Cryan", "J")],
+    ),
+    # Record with no abstract — must still be indexed via title + MeSH.
+    _article(
+        "34567890",
+        "Faecal microbiota transplantation in treatment-resistant depression: a case series",
+        "", "Transl Psychiatry", "2021", "11", "", "e451",
+        ["Fecal Microbiota Transplantation", "Depressive Disorder, Treatment-Resistant"],
+        [("Doll", "J")],
+    ),
+]) + "</PubmedArticleSet>").encode("utf-8")
+
+ESPELL_XML = b"<?xml version='1.0'?><eSpellResult><CorrectedQuery></CorrectedQuery></eSpellResult>"
+
+
+class FakeResponse:
+    def __init__(self, content: bytes, payload=None):
+        self.content = content
+        self._payload = payload
+        self.status_code = 200
+
+    def json(self):
+        return self._payload
+
+    def raise_for_status(self):
+        return None
+
+
+CALLS = {"espell": 0, "esearch": 0, "efetch": 0}
+
+
+def fake_get(self, endpoint, params):  # noqa: ARG001
+    if endpoint.startswith("espell"):
+        CALLS["espell"] += 1
+        return FakeResponse(ESPELL_XML)
+    if endpoint.startswith("esearch"):
+        CALLS["esearch"] += 1
+        return FakeResponse(b"", ESEARCH_JSON)
+    if endpoint.startswith("efetch"):
+        CALLS["efetch"] += 1
+        return FakeResponse(EFETCH_XML)
+    raise AssertionError(f"unexpected endpoint {endpoint}")
+
+
+pc.PubMedClient._get = fake_get  # monkeypatch before the pipeline is imported
+
+from rag.chunker import chunk_article  # noqa: E402
+from rag.embedder import embedder  # noqa: E402
+from rag.pipeline import pipeline  # noqa: E402
+from rag.store import store  # noqa: E402
+
+# --------------------------------------------------------------------------- #
+PASS, FAIL = [], []
+
+
+def check(name, condition, detail=""):
+    (PASS if condition else FAIL).append(name)
+    mark = "  PASS" if condition else "  FAIL"
+    print(f"{mark}  {name}" + (f"   -> {detail}" if detail and not condition else ""))
+
+
+def main() -> int:
+    print("=" * 74)
+    print("PubMed RAG — offline self-test")
+    print(f"Embedding backend : {embedder.kind}  ({embedder.name}, dim={embedder.dim})")
+    print(f"Scratch DB        : {config.DB_PATH}")
+    print("=" * 74)
+
+    # ---------------- 1. XML parsing -----------------------------------
+    print("\n[1] NCBI XML parsing")
+    arts = pc.pubmed_client.efetch(["31456127", "36527918", "29276734", "34567890"])
+    check("parses 4 PubmedArticle records", len(arts) == 4, f"got {len(arts)}")
+    a0 = next(a for a in arts if a["pmid"] == "31456127")
+    check("title extracted", a0["title"].startswith("The gut-brain axis"))
+    check("structured abstract labels kept", "Results:" in a0["abstract"])
+    check("html entity decoded (&lt; -> <)", "p < 0.001" in a0["abstract"])
+    check("authors parsed", a0["authors"][:1] == ["Valles-Colomer M"], str(a0["authors"]))
+    check("journal + year parsed", a0["journal"] == "Nat Microbiol" and a0["year"] == "2019")
+    check("doi parsed", a0["doi"] == "10.1000/test.31456127")
+    check("mesh headings parsed", "Brain-Gut Axis" in a0["mesh_terms"])
+    check("volume/issue/pages parsed",
+          (a0["volume"], a0["issue"], a0["pages"]) == ("4", "6", "623-32"),
+          f"{a0['volume']}/{a0['issue']}/{a0['pages']}")
+
+    # ---------------- 2. Chunking --------------------------------------
+    print("\n[2] Chunking")
+    chunks = chunk_article(a0)
+    check("produces multiple chunks", len(chunks) >= 2, f"got {len(chunks)}")
+    check("chunk 0 is title+MeSH", chunks[0]["section"] == "Title")
+    check("chunk ids unique", len({c["chunk_id"] for c in chunks}) == len(chunks))
+    no_abs = next(a for a in arts if a["pmid"] == "34567890")
+    check("abstract-less record still chunked", len(chunk_article(no_abs)) == 1)
+
+    # ---------------- 3. MeSH extraction -------------------------------
+    print("\n[3] Query understanding")
+    mesh = pc.PubMedClient._mesh_from_translation(
+        ESEARCH_JSON["esearchresult"]["querytranslation"]
+    )
+    check("MeSH terms pulled from translation",
+          "gastrointestinal microbiome" in mesh and "depression" in mesh, str(mesh))
+    u = pipeline.understand('"The gut-brain axis"')
+    check("quoted query -> exact title mode",
+          u["field"] == "title" and "[Title]" in u["pubmed_query"], u["pubmed_query"])
+    u2 = pipeline.understand("how does gut microbiota influence depression in adults?")
+    check("stopwords removed from long query",
+          "how" not in u2["terms"] and "microbiota" in u2["terms"], str(u2["terms"]))
+
+    # ---------------- 4. End-to-end search -----------------------------
+    print("\n[4] End-to-end search")
+    res = pipeline.search("how does gut microbiota influence depression?", top_k=5)
+    check("returns ranked results", len(res["results"]) >= 3, str(len(res["results"])))
+    check("results sorted by score",
+          all(res["results"][i]["score"] >= res["results"][i + 1]["score"]
+              for i in range(len(res["results"]) - 1)))
+    check("ranks assigned 1..n",
+          [d["rank"] for d in res["results"]] == list(range(1, len(res["results"]) + 1)))
+    check("MeSH surfaced to UI", len(res["stages"]["mesh_terms"]) >= 2,
+          str(res["stages"]["mesh_terms"]))
+    check("chunks indexed", res["stages"]["chunks_indexed"] >= 6,
+          str(res["stages"]["chunks_indexed"]))
+    check("total match count surfaced", res["stages"]["total_matches"] == 18452)
+    check("matched passages attached",
+          all(d["matched_passages"] for d in res["results"]))
+    check("hybrid sub-scores present",
+          "dense_weight" in res["stages"]["retrieval"])
+
+    # ---------------- 5. Generation ------------------------------------
+    print("\n[5] Grounded answer generation")
+    ans = res["answer"]
+    check("answer is non-empty", len(ans["answer"]) > 80)
+    check("answer is grounded", ans["grounded"] is True)
+    check("answer carries citations", len(ans["citations"]) >= 1)
+    cited = {c["pmid"] for c in ans["citations"]}
+    retrieved = {d["pmid"] for d in res["results"]}
+    check("every citation traces to a retrieved doc", cited.issubset(retrieved),
+          f"{cited - retrieved}")
+    import re as _re
+    markers = {int(m) for m in _re.findall(r"\[(\d+)\]", ans["answer"])}
+    numbers = {c["n"] for c in ans["citations"]}
+    check("every [n] marker has a matching citation", markers.issubset(numbers),
+          f"markers={markers} citations={numbers}")
+
+    # ---------------- 6. Caching ---------------------------------------
+    print("\n[6] Caching")
+    before = dict(CALLS)
+    res2 = pipeline.search("how does gut microbiota influence depression?", top_k=5)
+    check("second search hits zero EFetch calls", CALLS["efetch"] == before["efetch"],
+          f"{before['efetch']} -> {CALLS['efetch']}")
+    check("cached run is not slower", res2["took_ms"] <= max(res["took_ms"], 1) * 3,
+          f"{res['took_ms']}ms -> {res2['took_ms']}ms")
+    st = store.stats()
+    check("articles persisted", st["articles"] == 4, str(st))
+    check("embeddings persisted", st["embeddings"] >= 6, str(st))
+    check("query log written", st["queries"] >= 2, str(st))
+
+    # ---------------- 7. Semantic behaviour ----------------------------
+    print("\n[7] Semantic behaviour")
+    r_vagus = pipeline.search("nerve pathway linking bacteria to anxiety in rodents",
+                              top_k=4, with_answer=False)
+    top_pmid = r_vagus["results"][0]["pmid"] if r_vagus["results"] else None
+    check("vocabulary-mismatch query ranks the vagus paper first",
+          top_pmid == "29276734",
+          f"top was {top_pmid} ({(r_vagus['results'][0]['title'][:60] if r_vagus['results'] else '-')})")
+    r_trial = pipeline.search("randomised trial of live bacteria supplements for mood",
+                              top_k=4, with_answer=False)
+    top2 = r_trial["results"][0]["pmid"] if r_trial["results"] else None
+    check("RCT-intent query ranks the probiotic trial first", top2 == "36527918",
+          f"top was {top2}")
+
+    # ---------------- 8. Similar / article ------------------------------
+    print("\n[8] Article + similar endpoints")
+    art = pipeline.article("36527918")
+    check("article lookup works", art is not None and art["pmid"] == "36527918")
+    sim = pipeline.similar("31456127", top_k=3)
+    check("similar excludes the seed", all(s["pmid"] != "31456127" for s in sim))
+    check("similar returns neighbours", len(sim) >= 1, str(len(sim)))
+
+    # ---------------- 9. Flask routes -----------------------------------
+    print("\n[9] Flask routes")
+    from app import app
+
+    app.config["TESTING"] = True
+    with app.test_client() as client:
+        r = client.get("/")
+        check("GET / renders", r.status_code == 200 and b"PubMed Semantic Search" in r.data)
+
+        r = client.get("/api/health")
+        check("GET /api/health", r.status_code == 200 and r.get_json()["status"] == "ok")
+
+        r = client.post("/api/search", json={"query": "gut microbiota depression", "top_k": 3})
+        body = r.get_json()
+        check("POST /api/search", r.status_code == 200 and len(body["results"]) >= 1)
+        check("search payload has answer + stages",
+              "answer" in body and "stages" in body and "understanding" in body)
+
+        r = client.get("/api/search?q=probiotics+depression&top_k=2&with_answer=false")
+        check("GET /api/search alias", r.status_code == 200
+              and len(r.get_json()["results"]) >= 1)
+
+        r = client.post("/api/search", json={"query": "   "})
+        check("empty query -> 400", r.status_code == 400)
+
+        r = client.post("/api/ask", json={"query": "does probiotic help depression"})
+        check("POST /api/ask returns an answer",
+              r.status_code == 200 and r.get_json()["answer"]["answer"])
+
+        r = client.get("/api/article/29276734")
+        check("GET /api/article/<pmid>", r.status_code == 200
+              and r.get_json()["pmid"] == "29276734")
+
+        r = client.get("/api/similar/31456127")
+        check("GET /api/similar/<pmid>", r.status_code == 200
+              and "results" in r.get_json())
+
+        r = client.get("/api/stats")
+        check("GET /api/stats", r.status_code == 200 and "store" in r.get_json())
+
+        r = client.get("/api/nope")
+        check("unknown route -> 404 json", r.status_code == 404)
+
+    # ---------------- 10. Citation formatting ----------------------------
+    print("\n[10] Citation formatting (Vancouver / NLM)")
+    from rag import citations as cite
+
+    ref = cite.vancouver(store.get_articles(["31456127"])["31456127"])
+    check("authors then title", ref.startswith("Valles-Colomer M, Falony G, Raes J."), ref)
+    check("journal abbreviation present", "Nat Microbiol." in ref, ref)
+    check("year;volume(issue):pages locator", "2019;4(6):623-32." in ref, ref)
+    check("doi included", "doi:10.1000/test.31456127." in ref, ref)
+    check("pmid included", ref.rstrip().endswith("PMID: 31456127."), ref)
+
+    many = {"authors": [f"Author{i} A" for i in range(9)], "title": "T", "year": "2020"}
+    check("7+ authors truncate to six + et al",
+          cite.author_string(many["authors"]).endswith("et al")
+          and cite.author_string(many["authors"]).count(",") == 6,
+          cite.author_string(many["authors"]))
+
+    arts = [store.get_articles([p])[p] for p in ("31456127", "36527918")]
+    bib = cite.bibtex(arts)
+    check("bibtex has one entry per article", bib.count("@article{") == 2)
+    check("bibtex escapes & in fields", "\\&" in cite.bibtex(
+        [{**arts[0], "title": "Gut & brain"}]))
+    check("bibtex page range uses --", "623--32" in bib, bib[:200])
+
+    ris_out = cite.ris(arts)
+    check("ris starts each record with TY", ris_out.count("TY  - JOUR") == 2)
+    check("ris terminates each record", ris_out.count("ER  - ") == 2)
+    check("ris splits start/end pages", "SP  - 623" in ris_out and "EP  - 32" in ris_out)
+
+    # ---------------- 11. Export ------------------------------------------
+    print("\n[11] Export formats")
+    from rag import export as exporter
+
+    pdf_refs = exporter.build("pdf", arts, mode="references", query="gut microbiota")
+    check("references PDF has a PDF header", pdf_refs[:5] == b"%PDF-")
+    check("references PDF is non-trivial", len(pdf_refs) > 2000, f"{len(pdf_refs)} bytes")
+
+    full = [{**a, "matched_passages": [{"section": "Results", "text": a["abstract"][:200],
+                                        "score": 0.8}]} for a in arts]
+    pdf_report = exporter.build(
+        "pdf", full, mode="report", query="gut microbiota depression",
+        answer=res["answer"], stages=res["stages"],
+    )
+    check("report PDF is a PDF", pdf_report[:5] == b"%PDF-")
+    check("report PDF is larger than the reference list",
+          len(pdf_report) > len(pdf_refs),
+          f"report={len(pdf_report)} refs={len(pdf_refs)}")
+
+    try:
+        from pypdf import PdfReader as _PdfReader
+        import io as _io
+        text = "\n".join(
+            p.extract_text() or "" for p in _PdfReader(_io.BytesIO(pdf_report)).pages
+        )
+        check("report PDF contains the query", "gut microbiota depression" in text, "")
+        check("report PDF contains the reference list", "References" in text, "")
+        check("report PDF contains an abstract body",
+              "Accumulating evidence" in text or "Abstracts" in text, "")
+        check("report PDF is paginated", "Page 1" in text, "")
+    except ImportError:
+        print("  SKIP  PDF text extraction (pypdf not installed)")
+
+    check("bib export encodes utf-8", exporter.build("bib", arts).startswith(b"@article{"))
+    check("ris export encodes utf-8", exporter.build("ris", arts).startswith(b"TY  - JOUR"))
+    check("txt export is numbered", exporter.build("txt", arts).startswith(b"1. "))
+    name = exporter.filename("pdf", "gut microbiota & depression!", "report")
+    check("filename is filesystem-safe",
+          name.endswith(".pdf") and " " not in name and "&" not in name, name)
+
+    try:
+        exporter.build("docx", arts)
+        check("unknown format rejected", False, "no exception raised")
+    except ValueError:
+        check("unknown format rejected", True)
+
+    # ---------------- 12. Search history ----------------------------------
+    print("\n[12] Search history")
+    hist = store.history(limit=50)
+    check("searches were recorded", len(hist) >= 3, str(len(hist)))
+    check("newest first", hist[0]["created_at"] >= hist[-1]["created_at"])
+    latest = hist[0]
+    check("history row carries pmids", len(latest["pmids"]) >= 1)
+
+    full_record = store.get_search(latest["id"])
+    check("snapshot stores results", len(full_record["snapshot"].get("results", [])) >= 1)
+    check("snapshot stores the answer",
+          "answer" in full_record["snapshot"])
+    check("snapshot restores without NCBI",
+          {d["pmid"] for d in full_record["snapshot"]["results"]}.issubset(
+              set(full_record["pmids"])))
+
+    store.set_pinned(latest["id"], True)
+    check("pin persists", store.get_search(latest["id"])["pinned"] == 1)
+    check("pinned rows sort first", store.history(limit=50)[0]["id"] == latest["id"])
+
+    before = len(store.history(limit=200))
+    kept = store.clear_history(keep_pinned=True)
+    after = store.history(limit=200)
+    check("clear keeps pinned rows",
+          len(after) == 1 and after[0]["id"] == latest["id"],
+          f"before={before} deleted={kept} left={len(after)}")
+
+    filtered = store.history(limit=50, search="microbiota")
+    check("history is searchable", all("microbiota" in h["query"] for h in filtered))
+    check("delete removes a row", store.delete_search(latest["id"]) is True)
+    check("deleting a missing row returns False", store.delete_search(999999) is False)
+
+    # ---------------- 13. Per-paper chat ----------------------------------
+    print("\n[13] Per-paper chat")
+    from rag import paper_chat
+
+    check("methods intent detected",
+          paper_chat.detect_intent("what sample size did they use?") == "Methods")
+    check("results intent detected",
+          paper_chat.detect_intent("what were the main findings?") == "Results")
+    check("conclusion intent detected (verb form)",
+          paper_chat.detect_intent("what do the authors conclude?") == "Conclusions",
+          str(paper_chat.detect_intent("what do the authors conclude?")))
+    check("conclusion intent detected (noun form)",
+          paper_chat.detect_intent("what is the conclusion of this study?") == "Conclusions")
+    check("background intent detected",
+          paper_chat.detect_intent("why did they run this study?") == "Background")
+    check("no intent on a bare question",
+          paper_chat.detect_intent("tell me about it") is None,
+          str(paper_chat.detect_intent("tell me about it")))
+
+    m = paper_chat.answer_question("31456127", "how many patients were studied?")
+    check("methods question hits the methods sentence",
+          "212" in m["answer"], m["answer"][:120])
+    check("evidence is returned", len(m["evidence"]) >= 1)
+    check("evidence is verbatim from the abstract",
+          all(e["text"] in store.get_articles(["31456127"])["31456127"]["abstract"]
+              for e in m["evidence"]))
+    check("evidence carries section labels",
+          any(e["section"] in {"Background", "Methods", "Results", "Conclusions"}
+              for e in m["evidence"]), str([e["section"] for e in m["evidence"]]))
+
+    r = paper_chat.answer_question("31456127", "what were the main results?")
+    check("results question hits the results sentence",
+          "Faecalibacterium" in r["answer"] or "short-chain" in r["answer"],
+          r["answer"][:120])
+
+    s = paper_chat.answer_question("31456127", "summarise this paper")
+    check("summary spans multiple sections",
+          len({e["section"] for e in s["evidence"]}) >= 2,
+          str([e["section"] for e in s["evidence"]]))
+    check("summary is prefixed", s["answer"].startswith("In short:"))
+
+    off = paper_chat.answer_question(
+        "31456127", "what is the boiling point of liquid helium at 3 atmospheres?")
+    check("off-topic question yields low confidence",
+          off["confidence"] < paper_chat.LOW_CONFIDENCE, str(off["confidence"]))
+    check("off-topic question declines instead of asserting",
+          "does not directly address" in off["answer"], off["answer"][:120])
+    check("off-topic reply is flagged ungrounded", off["grounded"] is False)
+    check("off-topic has zero lexical overlap",
+          off["signals"]["lexical_cover"] == 0.0, str(off["signals"]))
+    check("on-topic scores higher than off-topic",
+          m["confidence"] > off["confidence"],
+          f"on={m['confidence']} off={off['confidence']}")
+    check("confidence is model-scale independent (not raw cosine)",
+          m["confidence"] != m["signals"]["top_score"])
+
+    mesh_q = paper_chat.answer_question("31456127", "what MeSH terms is this indexed under?")
+    check("mesh question answered from metadata",
+          "Brain-Gut Axis" in mesh_q["answer"], mesh_q["answer"][:120])
+
+    no_abs = paper_chat.answer_question("34567890", "what were the results?")
+    check("abstract-less record says so",
+          "no abstract" in no_abs["answer"].lower(), no_abs["answer"][:120])
+    check("abstract-less record is ungrounded", no_abs["grounded"] is False)
+
+    sugg = paper_chat.suggested_questions(store.get_articles(["36527918"])["36527918"])
+    check("suggestions generated", 2 <= len(sugg) <= 5, str(len(sugg)))
+
+    store.clear_chat("31456127")
+    paper_chat.chat("31456127", "what methods were used?")
+    transcript = store.chat_history("31456127")
+    check("chat persists both turns", len(transcript) == 2, str(len(transcript)))
+    check("chat roles are ordered user then assistant",
+          [t["role"] for t in transcript] == ["user", "assistant"])
+    check("stored assistant turn keeps its evidence", len(transcript[1]["evidence"]) >= 1)
+    check("clear_chat empties the transcript",
+          store.clear_chat("31456127") >= 2 and store.chat_history("31456127") == [])
+
+    # ---------------- 14. New Flask routes --------------------------------
+    print("\n[14] Flask routes — export, history, chat")
+    with app.test_client() as client:
+        client.post("/api/search", json={"query": "gut microbiota depression", "top_k": 3})
+
+        r = client.get("/api/history")
+        body = r.get_json()
+        check("GET /api/history", r.status_code == 200 and len(body["items"]) >= 1)
+        hid = body["items"][0]["id"]
+
+        r = client.get(f"/api/history/{hid}")
+        restored = r.get_json()
+        check("GET /api/history/<id> restores results",
+              r.status_code == 200 and len(restored["results"]) >= 1)
+        check("restored payload is flagged", restored.get("from_history") is True)
+
+        r = client.post(f"/api/history/{hid}/pin", json={"pinned": True})
+        check("POST /api/history/<id>/pin", r.status_code == 200
+              and r.get_json()["pinned"] is True)
+
+        r = client.get("/api/history/999999")
+        check("missing history id -> 404", r.status_code == 404)
+
+        pmids = [d["pmid"] for d in restored["results"]][:2]
+
+        r = client.post("/api/export", json={"pmids": pmids, "format": "pdf",
+                                             "mode": "references", "query": "test"})
+        check("POST /api/export pdf", r.status_code == 200
+              and r.data[:5] == b"%PDF-")
+        check("export sets a download filename",
+              "attachment" in r.headers.get("Content-Disposition", "")
+              and r.headers.get("X-Export-Filename", "").endswith(".pdf"))
+        check("export content-type is pdf",
+              r.headers["Content-Type"].startswith("application/pdf"))
+
+        r = client.post("/api/export", json={"search_id": hid, "format": "pdf",
+                                             "mode": "report"})
+        check("export by search_id builds a report",
+              r.status_code == 200 and r.data[:5] == b"%PDF-")
+
+        r = client.post("/api/export", json={"pmids": pmids, "format": "bib"})
+        check("POST /api/export bibtex",
+              r.status_code == 200 and r.data.startswith(b"@article{"))
+
+        r = client.post("/api/export", json={"pmids": pmids, "format": "ris"})
+        check("POST /api/export ris", r.status_code == 200
+              and r.data.startswith(b"TY  - JOUR"))
+
+        r = client.post("/api/export", json={"pmids": [], "format": "pdf"})
+        check("export with no selection -> 400", r.status_code == 400)
+
+        r = client.post("/api/export", json={"pmids": pmids, "format": "docx"})
+        check("export with bad format -> 400", r.status_code == 400)
+
+        r = client.post("/api/citations", json={"pmids": pmids})
+        cites = r.get_json()["citations"]
+        check("POST /api/citations", r.status_code == 200 and len(cites) == len(pmids))
+        check("citation preview is numbered from 1", cites[0]["n"] == 1)
+
+        r = client.get("/api/chat/31456127")
+        check("GET /api/chat/<pmid>", r.status_code == 200
+              and "suggestions" in r.get_json())
+
+        r = client.post("/api/chat/31456127", json={"question": "what methods were used?"})
+        chat_body = r.get_json()
+        check("POST /api/chat/<pmid>", r.status_code == 200 and chat_body["answer"])
+        check("chat response carries confidence + evidence",
+              "confidence" in chat_body and len(chat_body["evidence"]) >= 1)
+
+        r = client.post("/api/chat/31456127", json={"question": "  "})
+        check("empty question -> 400", r.status_code == 400)
+
+        r = client.get("/api/chat/31456127")
+        check("transcript is returned on reload",
+              len(r.get_json()["messages"]) >= 2)
+
+        r = client.delete("/api/chat/31456127")
+        check("DELETE /api/chat/<pmid>", r.status_code == 200
+              and r.get_json()["deleted"] >= 2)
+
+        r = client.delete(f"/api/history/{hid}")
+        check("DELETE /api/history/<id>", r.status_code == 200)
+
+    # ---------------- 15. Upgrading a v1.0.0 database ---------------------
+    # A user who ran the first release already has a data/pubmed_cache.sqlite3
+    # without volume/issue/pages and without the searches/chat tables. Opening
+    # it with the current Store must migrate it in place, not crash.
+    print("\n[15] Migrating a v1.0.0 database")
+    import sqlite3 as _sq
+    from rag.store import Store as _Store
+
+    old_path = os.path.join(_TMP, "legacy_v1.sqlite3")
+    legacy = _sq.connect(old_path)
+    legacy.executescript(
+        """
+        CREATE TABLE articles (
+            pmid TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '',
+            abstract TEXT NOT NULL DEFAULT '', authors TEXT NOT NULL DEFAULT '[]',
+            journal TEXT NOT NULL DEFAULT '', pub_date TEXT NOT NULL DEFAULT '',
+            year TEXT NOT NULL DEFAULT '', doi TEXT NOT NULL DEFAULT '',
+            mesh_terms TEXT NOT NULL DEFAULT '[]', keywords TEXT NOT NULL DEFAULT '[]',
+            publication_types TEXT NOT NULL DEFAULT '[]', url TEXT NOT NULL DEFAULT '',
+            fetched_at REAL NOT NULL DEFAULT 0);
+        CREATE TABLE chunks (chunk_id TEXT PRIMARY KEY, pmid TEXT NOT NULL,
+            ordinal INTEGER NOT NULL, section TEXT NOT NULL DEFAULT '', text TEXT NOT NULL);
+        CREATE TABLE embeddings (chunk_id TEXT PRIMARY KEY, model TEXT NOT NULL,
+            dim INTEGER NOT NULL, vector BLOB NOT NULL);
+        CREATE TABLE query_log (id INTEGER PRIMARY KEY AUTOINCREMENT, query TEXT NOT NULL,
+            translated TEXT NOT NULL DEFAULT '', n_results INTEGER NOT NULL DEFAULT 0,
+            took_ms INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL);
+        """
+    )
+    legacy.execute(
+        "INSERT INTO articles (pmid, title, abstract, fetched_at) VALUES (?,?,?,?)",
+        ("11111111", "A legacy record", "Some cached abstract text.", 9e9),
+    )
+    legacy.execute(
+        "INSERT INTO query_log (query, created_at) VALUES (?,?)", ("old query", 1.0)
+    )
+    legacy.commit()
+    legacy.close()
+
+    try:
+        upgraded = _Store(old_path)
+        check("v1 database opens without error", True)
+    except Exception as exc:  # noqa: BLE001
+        check("v1 database opens without error", False, str(exc))
+        upgraded = None
+
+    if upgraded:
+        cols = {
+            r["name"] for r in upgraded._conn().execute("PRAGMA table_info(articles)")
+        }
+        check("migration adds volume/issue/pages",
+              {"volume", "issue", "pages"}.issubset(cols), str(sorted(cols)))
+        check("existing cached rows survive",
+              upgraded.get_articles(["11111111"])["11111111"]["title"] == "A legacy record")
+        check("new tables are created",
+              upgraded.stats()["searches"] == 0 and upgraded.stats()["chat_messages"] == 0)
+
+        sid = upgraded.save_search({"query": "after upgrade", "pmids": ["11111111"],
+                                    "n_results": 1, "snapshot": {"results": []}})
+        check("history works on the upgraded database",
+              upgraded.get_search(sid)["query"] == "after upgrade")
+        upgraded.add_chat_message("11111111", "user", "hello")
+        check("chat works on the upgraded database",
+              len(upgraded.chat_history("11111111")) == 1)
+        check("re-opening an already-migrated database is a no-op",
+              _Store(old_path).stats()["articles"] == 1)
+
+    # ---------------- 16. Static assets -----------------------------------
+    print("\n[16] Static assets")
+    for rel in ("static/css/style.css", "static/js/app.js", "templates/index.html"):
+        check(f"{rel} exists", (ROOT / rel).exists())
+
+    html = (ROOT / "templates/index.html").read_text(encoding="utf-8")
+    for node in ("paper-view", "history-drawer", "export-dialog", "chat-form",
+                 "results-toolbar"):
+        check(f"index.html wires #{node}", f'id="{node}"' in html)
+
+    js = (ROOT / "static/js/app.js").read_text(encoding="utf-8")
+    for route in ("/api/export", "/api/history", "/api/chat/", "/api/citations"):
+        check(f"app.js calls {route}", route in js)
+
+    # ---------------- summary -------------------------------------------
+    print("\n" + "=" * 74)
+    print(f"  {len(PASS)} passed, {len(FAIL)} failed")
+    if FAIL:
+        print("  Failing checks:")
+        for f in FAIL:
+            print(f"    - {f}")
+    print("=" * 74)
+    return 1 if FAIL else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

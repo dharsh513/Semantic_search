@@ -1,0 +1,13 @@
+# ---- Core web ----
+Flask==3.0.3
+Flask-Cors==4.0.1
+requests==2.32.3
+python-dotenv==1.0.1
+
+# ---- RAG / ML ----
+numpy>=1.26,<3.0
+scikit-learn>=1.4          # TF-IDF fallback embedder + cosine utils
+sentence-transformers>=3.0 # local embedding model (all-MiniLM-L6-v2)
+
+# ---- Optional but recommended ----
+# faiss-cpu>=1.8           # uncomment for FAISS ANN index (numpy index used otherwise)

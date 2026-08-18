@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PubMed Semantic Search · RAG</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧬</text></svg>" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <div class="brand">
+      <span class="brand-mark">🧬</span>
+      <div>
+        <h1>PubMed Semantic Search</h1>
+        <p class="brand-sub">Retrieval-Augmented Generation over NCBI E-utilities</p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span class="pill" id="engine-pill" title="Active embedding backend">engine: …</span>
+      <span class="pill pill-muted" id="cache-pill" title="Locally cached PubMed records">cache: …</span>
+      <button class="icon-btn" id="theme-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ------------------------------------------------ search ---------- -->
+  <section class="search-card">
+    <form id="search-form" autocomplete="off">
+      <div class="search-row">
+        <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="11" cy="11" r="7"></circle><line x1="16.5" y1="16.5" x2="21" y2="21"></line>
+        </svg>
+        <input
+          id="query"
+          name="query"
+          type="text"
+          placeholder="Ask in plain English — e.g. how does gut microbiota influence depression?"
+          aria-label="Search query"
+          required />
+        <button type="submit" class="btn-primary" id="search-btn">
+          <span class="btn-label">Search</span>
+        </button>
+      </div>
+
+      <div class="controls">
+        <label class="ctl">
+          <span>Mode</span>
+          <select id="field">
+            <option value="auto">Semantic (auto)</option>
+            <option value="title">Exact title</option>
+            <option value="author">Author</option>
+          </select>
+        </label>
+        <label class="ctl">
+          <span>Results</span>
+          <select id="top_k">
+            <option>5</option><option selected>10</option>
+            <option>15</option><option>20</option>
+          </select>
+        </label>
+        <label class="ctl">
+          <span>Sort candidates</span>
+          <select id="sort">
+            <option value="relevance">Relevance</option>
+            <option value="date">Newest first</option>
+          </select>
+        </label>
+        <label class="ctl">
+          <span>From year</span>
+          <input id="mindate" type="number" min="1800" max="2100" placeholder="any" />
+        </label>
+        <label class="ctl ctl-check">
+          <input id="with_answer" type="checkbox" checked />
+          <span>Generate RAG answer</span>
+        </label>
+      </div>
+    </form>
+
+    <div class="examples">
+      <span class="examples-label">Try:</span>
+      <button class="chip" type="button">how does gut microbiota influence depression?</button>
+      <button class="chip" type="button">CRISPR base editing for sickle cell disease</button>
+      <button class="chip" type="button">long term effects of intermittent fasting on insulin sensitivity</button>
+      <button class="chip" type="button">deep learning for early detection of diabetic retinopathy</button>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------ status ---------- -->
+  <div id="status" class="status" hidden></div>
+
+  <!-- ------------------------------------------------ pipeline -------- -->
+  <section id="pipeline" class="panel" hidden>
+    <button class="panel-head" id="pipeline-toggle" aria-expanded="false">
+      <span class="panel-title">Query understanding &amp; pipeline trace</span>
+      <span class="caret">▾</span>
+    </button>
+    <div class="panel-body" id="pipeline-body" hidden></div>
+  </section>
+
+  <!-- ------------------------------------------------ answer ---------- -->
+  <section id="answer-card" class="answer-card" hidden>
+    <div class="answer-head">
+      <h2>Grounded answer</h2>
+      <span class="pill pill-accent" id="answer-mode">extractive</span>
+    </div>
+    <div id="answer-text" class="answer-text"></div>
+    <ol id="answer-citations" class="citations"></ol>
+  </section>
+
+  <!-- ------------------------------------------------ results --------- -->
+  <section id="results-section" hidden>
+    <div class="results-head">
+      <h2 id="results-title">Results</h2>
+      <span class="results-meta" id="results-meta"></span>
+    </div>
+    <div id="results" class="results"></div>
+  </section>
+
+  <section id="empty" class="empty">
+    <div class="empty-art">🔬</div>
+    <h2>Search PubMed by meaning, not just keywords</h2>
+    <p>
+      Your question is expanded with NCBI's MeSH mapping, candidate records are pulled
+      live from PubMed, split into passages, embedded locally, and re-ranked with a
+      hybrid semantic + BM25 scorer. The answer you get back cites every record it used.
+    </p>
+  </section>
+
+</main>
+
+<footer class="footer wrap">
+  <span>Data: NCBI PubMed via E-utilities (no API key required).</span>
+  <span>Embeddings run locally · v{{ app_version }}</span>
+</footer>
+
+<!-- ------------------------------------------------ modal ------------- -->
+<div class="modal" id="modal" hidden>
+  <div class="modal-backdrop" data-close></div>
+  <div class="modal-box" role="dialog" aria-modal="true">
+    <button class="modal-close" data-close aria-label="Close">×</button>
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,341 @@
+/* ==========================================================================
+   Auth screen — split showcase / form
+   Extends the design tokens declared in style.css.
+   ========================================================================== */
+
+.auth-body {
+  min-height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.auth-theme {
+  position: fixed; top: 18px; right: 20px; z-index: 20;
+}
+
+.auth-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+/* ------------------------------------------------------------- showcase */
+.auth-showcase {
+  position: relative;
+  overflow: hidden;
+  display: flex; align-items: center;
+  background:
+    radial-gradient(1100px 620px at 12% 8%,  rgba(129,140,248,.55), transparent 62%),
+    radial-gradient(900px 620px at 88% 92%,  rgba(45,212,191,.45),  transparent 60%),
+    linear-gradient(148deg, #1a2456 0%, #1d3a63 42%, #124f52 100%);
+  color: #eef2ff;
+  isolation: isolate;
+}
+
+/* slow breathing wash over the gradient */
+.showcase-glow {
+  position: absolute; inset: -25%;
+  background:
+    radial-gradient(560px 560px at 30% 30%, rgba(255,255,255,.14), transparent 60%),
+    radial-gradient(640px 640px at 74% 70%, rgba(94,234,212,.20), transparent 62%);
+  animation: drift 22s ease-in-out infinite alternate;
+  z-index: 0;
+}
+@keyframes drift {
+  0%   { transform: translate3d(-3%, -2%, 0) scale(1); }
+  100% { transform: translate3d(4%, 3%, 0) scale(1.12); }
+}
+
+/* -------- DNA helix -------- */
+/* Offset to the right so the headline sits on the quieter side of the panel. */
+.helix {
+  position: absolute; top: 0; bottom: 0; right: -6%; left: 26%;
+  opacity: .3; z-index: 0;
+  pointer-events: none;
+}
+.helix .strand {
+  fill: none;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 5px rgba(165,180,252,.4));
+}
+.helix .rungs line {
+  stroke: rgba(226,232,240,.42);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+/* The whole ladder scrolls upward, which reads as rotation on a helix. */
+.helix-spin {
+  animation: helix-scroll 26s linear infinite;
+  transform-origin: 150px 380px;
+}
+@keyframes helix-scroll {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-360px); }
+}
+
+/* -------- drifting motes -------- */
+.motes { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.mote {
+  position: absolute; bottom: -12px;
+  width: 4px; height: 4px; border-radius: 50%;
+  background: rgba(255,255,255,.75);
+  box-shadow: 0 0 8px rgba(190,220,255,.85);
+  animation: rise linear infinite;
+}
+@keyframes rise {
+  0%   { transform: translateY(0) translateX(0) scale(.6); opacity: 0; }
+  12%  { opacity: .9; }
+  85%  { opacity: .55; }
+  100% { transform: translateY(-104vh) translateX(var(--sway, 30px)) scale(1.1); opacity: 0; }
+}
+
+/* -------- content -------- */
+.showcase-inner {
+  position: relative; z-index: 2;
+  padding: 56px clamp(36px, 5vw, 76px);
+  width: 100%;
+  display: flex; flex-direction: column; gap: 26px;
+}
+
+.showcase-brand { display: flex; align-items: center; gap: 13px; }
+.showcase-brand .brand-mark {
+  width: 46px; height: 46px; border-radius: 13px;
+  display: grid; place-items: center;
+  font-size: 23px; line-height: 1;
+  background: rgba(255,255,255,.14);
+  border: 1px solid rgba(255,255,255,.22);
+  backdrop-filter: blur(6px);
+}
+.showcase-brand strong { display: block; font-size: 15.5px; font-weight: 650; letter-spacing: -.01em; }
+.showcase-brand span { display: block; font-size: 12.5px; color: rgba(226,232,240,.72); }
+
+.showcase-head {
+  font-size: clamp(30px, 3.5vw, 46px);
+  line-height: 1.12; font-weight: 700; letter-spacing: -.03em;
+  margin: 6px 0 0; max-width: 15ch;
+}
+.showcase-head em {
+  font-style: normal;
+  background: linear-gradient(96deg, #5eead4, #a5b4fc 55%, #f0abfc);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+}
+
+.showcase-rotator { position: relative; min-height: 128px; max-width: 46ch; }
+.rot {
+  position: absolute; inset: 0;
+  opacity: 0; transform: translateY(12px);
+  transition: opacity .55s ease, transform .55s ease;
+  pointer-events: none;
+}
+.rot.active { opacity: 1; transform: none; }
+.rot h3 {
+  font-size: 17px; font-weight: 650; margin-bottom: 8px;
+  display: flex; align-items: center; gap: 9px;
+}
+.rot h3::before {
+  content: ""; width: 20px; height: 2px; border-radius: 2px;
+  background: linear-gradient(90deg, #5eead4, #a5b4fc);
+}
+.rot p { margin: 0; font-size: 14.5px; line-height: 1.68; color: rgba(226,232,240,.84); }
+
+.showcase-dots { display: flex; gap: 8px; }
+.dot {
+  width: 26px; height: 3px; border-radius: 2px; cursor: pointer;
+  background: rgba(255,255,255,.24); border: 0; padding: 0;
+  transition: background .3s ease, width .3s ease;
+}
+.dot.on { background: rgba(255,255,255,.92); width: 40px; }
+
+.showcase-foot {
+  margin: auto 0 0; font-size: 12px; line-height: 1.7;
+  color: rgba(203,213,225,.62); max-width: 44ch;
+}
+
+/* ----------------------------------------------------------------- form */
+.auth-panel {
+  display: grid; place-items: center;
+  padding: 40px 24px;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.auth-card {
+  width: min(430px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  padding: 34px 32px 26px;
+  animation: card-in .45s cubic-bezier(.2,.7,.3,1) both;
+}
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(14px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+
+.auth-head { text-align: center; margin-bottom: 22px; }
+.auth-mark {
+  display: none;
+  font-size: 30px; margin-bottom: 8px;
+}
+.auth-head h1 { font-size: 22px; font-weight: 680; letter-spacing: -.02em; margin-bottom: 6px; }
+.auth-head p { margin: 0; font-size: 13.8px; color: var(--text-2); line-height: 1.6; }
+
+.auth-note {
+  font-size: 13px; line-height: 1.6; border-radius: 10px;
+  padding: 11px 14px; margin-bottom: 18px;
+}
+.auth-note.info { background: var(--accent-soft); color: var(--accent); }
+
+/* segmented toggle */
+.seg {
+  position: relative; display: grid; grid-template-columns: 1fr 1fr;
+  gap: 4px; padding: 4px; margin-bottom: 20px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 11px;
+}
+.seg-glider {
+  position: absolute; top: 4px; left: 4px;
+  width: calc(50% - 6px); height: calc(100% - 8px);
+  background: var(--surface); border-radius: 8px;
+  box-shadow: var(--shadow-s);
+  transition: transform .28s cubic-bezier(.4,1.2,.4,1);
+}
+.seg.on-signup .seg-glider { transform: translateX(calc(100% + 4px)); }
+.seg-btn {
+  position: relative; z-index: 1; cursor: pointer;
+  background: transparent; border: 0; font: inherit;
+  font-size: 13.5px; font-weight: 600; color: var(--text-3);
+  padding: 8px 4px; border-radius: 8px;
+  transition: color .2s ease;
+}
+.seg-btn.active { color: var(--text); }
+.seg-btn:hover { color: var(--text-2); }
+
+/* error banner */
+.auth-error {
+  display: flex; align-items: flex-start; gap: 9px;
+  font-size: 13.2px; line-height: 1.55;
+  background: var(--danger-soft); color: var(--danger);
+  border-radius: 10px; padding: 11px 14px; margin-bottom: 16px;
+  animation: shake .35s ease both;
+}
+@keyframes shake {
+  0%,100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+/* fields */
+.auth-form { display: grid; gap: 15px; }
+.field { display: grid; gap: 6px; }
+/* Only the label span is styled as a label — .pw-wrap and .meter are also
+   direct span children, and styling them here bled into the inputs. */
+.field > span:not(.pw-wrap):not(.meter) {
+  font-size: 12.3px; font-weight: 600; color: var(--text-2);
+}
+.field input[type="text"],
+.field input[type="email"],
+.field input[type="password"] {
+  width: 100%; font: inherit; font-size: 14.5px; color: var(--text);
+  background: var(--surface-2);
+  border: 1.5px solid var(--border); border-radius: 10px;
+  padding: 11px 13px; outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.field input::placeholder { color: var(--text-3); }
+.field input:focus {
+  border-color: var(--accent); background: var(--surface);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+.field.invalid input { border-color: var(--danger); }
+.field.valid input { border-color: color-mix(in srgb, var(--teal) 60%, var(--border)); }
+
+.field-err {
+  font-size: 12.2px; color: var(--danger); line-height: 1.45;
+  min-height: 0; display: none;
+}
+.field.invalid .field-err { display: block; }
+
+.pw-wrap { position: relative; display: block; }
+.pw-wrap input { padding-right: 44px !important; }
+.pw-eye {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 32px; height: 32px; border-radius: 8px; cursor: pointer;
+  background: transparent; border: 0; font-size: 15px; opacity: .5;
+  line-height: 1;
+}
+.pw-eye:hover { opacity: .95; background: var(--surface); }
+.pw-eye.on { opacity: 1; color: var(--accent); }
+
+/* strength meter */
+.meter { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
+.meter-track {
+  flex: 1; height: 4px; border-radius: 3px;
+  background: var(--surface-2); overflow: hidden;
+  border: 1px solid var(--border);
+}
+.meter-track > i {
+  display: block; height: 100%; width: 0;
+  border-radius: 3px; background: var(--danger);
+  transition: width .3s ease, background .3s ease;
+}
+.meter-label {
+  font-size: 11.5px; font-weight: 600; font-family: var(--mono);
+  color: var(--text-3); min-width: 66px; text-align: right;
+}
+.meter[data-score="0"] > .meter-track > i { width: 10%;  background: #dc2626; }
+.meter[data-score="1"] > .meter-track > i { width: 32%;  background: #ea580c; }
+.meter[data-score="2"] > .meter-track > i { width: 56%;  background: #d97706; }
+.meter[data-score="3"] > .meter-track > i { width: 80%;  background: #16a34a; }
+.meter[data-score="4"] > .meter-track > i { width: 100%; background: #0d9488; }
+
+.remember {
+  display: flex; align-items: center; gap: 9px; cursor: pointer;
+  font-size: 13.2px; color: var(--text-2);
+}
+.remember input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+
+.btn-block {
+  width: 100%; padding: 12px 20px; font-size: 14.5px; border-radius: 10px;
+  margin-top: 4px;
+}
+.btn-block:disabled { cursor: progress; }
+
+.fineprint {
+  margin: 2px 0 0; font-size: 11.8px; line-height: 1.65; color: var(--text-3);
+}
+
+.auth-foot {
+  margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border);
+  text-align: center; font-size: 11.8px; color: var(--text-3);
+}
+
+/* --------------------------------------------------------------- mobile */
+@media (max-width: 940px) {
+  .auth-body { overflow: auto; }
+  .auth-shell { grid-template-columns: 1fr; min-height: 100vh; }
+  .auth-showcase { min-height: 250px; max-height: 300px; }
+  .showcase-inner { padding: 28px 26px; gap: 14px; }
+  .showcase-head { font-size: 25px; max-width: none; }
+  .showcase-rotator, .showcase-dots, .showcase-foot { display: none; }
+  .helix { opacity: .35; }
+  .auth-panel { padding: 26px 18px 40px; }
+}
+
+@media (max-width: 480px) {
+  .auth-showcase { display: none; }
+  .auth-mark { display: block; }
+  .auth-card { border: 0; box-shadow: none; padding: 20px 6px; background: transparent; }
+  .auth-panel { align-content: start; padding-top: 44px; }
+}
+
+/* Users who prefer less motion get the layout without the animation. */
+@media (prefers-reduced-motion: reduce) {
+  .helix-spin, .showcase-glow, .mote { animation: none !important; }
+  .rot { transition: none; }
+  .auth-card { animation: none; }
+  .auth-error { animation: none; }
+}

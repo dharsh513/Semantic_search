@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sign in · PubMed Semantic Search</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+<link rel="stylesheet" href="{{ url_for('static', filename='css/auth.css') }}" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧬</text></svg>" />
+</head>
+<body class="auth-body">
+
+<button class="icon-btn auth-theme" id="theme-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+
+<div class="auth-shell">
+
+  <!-- =============================== left: the showcase =============== -->
+  <section class="auth-showcase" aria-hidden="true">
+    <div class="showcase-glow"></div>
+
+    <!-- animated double helix, drawn as SVG so it stays crisp at any size -->
+    <svg class="helix" viewBox="0 0 300 760" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <linearGradient id="strandA" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stop-color="#a5b4fc" stop-opacity=".25" />
+          <stop offset="50%"  stop-color="#ffffff" stop-opacity=".85" />
+          <stop offset="100%" stop-color="#5eead4" stop-opacity=".25" />
+        </linearGradient>
+        <linearGradient id="strandB" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stop-color="#5eead4" stop-opacity=".25" />
+          <stop offset="50%"  stop-color="#ffffff" stop-opacity=".7" />
+          <stop offset="100%" stop-color="#a5b4fc" stop-opacity=".25" />
+        </linearGradient>
+      </defs>
+
+      <g class="helix-spin">
+        <path class="strand" stroke="url(#strandA)"
+              d="M150 0 C 70 60, 70 120, 150 180 C 230 240, 230 300, 150 360
+                 C 70 420, 70 480, 150 540 C 230 600, 230 660, 150 720" />
+        <path class="strand" stroke="url(#strandB)"
+              d="M150 0 C 230 60, 230 120, 150 180 C 70 240, 70 300, 150 360
+                 C 230 420, 230 480, 150 540 C 70 600, 70 660, 150 720" />
+        <g class="rungs">
+          <line x1="150" y1="20"  x2="150" y2="20"  /><line x1="126" y1="45"  x2="174" y2="45"  />
+          <line x1="106" y1="70"  x2="194" y2="70"  /><line x1="98"  y1="95"  x2="202" y2="95"  />
+          <line x1="106" y1="120" x2="194" y2="120" /><line x1="126" y1="145" x2="174" y2="145" />
+          <line x1="150" y1="170" x2="150" y2="170" /><line x1="126" y1="195" x2="174" y2="195" />
+          <line x1="106" y1="220" x2="194" y2="220" /><line x1="98"  y1="245" x2="202" y2="245" />
+          <line x1="106" y1="270" x2="194" y2="270" /><line x1="126" y1="295" x2="174" y2="295" />
+          <line x1="150" y1="320" x2="150" y2="320" /><line x1="126" y1="345" x2="174" y2="345" />
+          <line x1="106" y1="370" x2="194" y2="370" /><line x1="98"  y1="395" x2="202" y2="395" />
+          <line x1="106" y1="420" x2="194" y2="420" /><line x1="126" y1="445" x2="174" y2="445" />
+          <line x1="150" y1="470" x2="150" y2="470" /><line x1="126" y1="495" x2="174" y2="495" />
+          <line x1="106" y1="520" x2="194" y2="520" /><line x1="98"  y1="545" x2="202" y2="545" />
+          <line x1="106" y1="570" x2="194" y2="570" /><line x1="126" y1="595" x2="174" y2="595" />
+          <line x1="150" y1="620" x2="150" y2="620" /><line x1="126" y1="645" x2="174" y2="645" />
+          <line x1="106" y1="670" x2="194" y2="670" /><line x1="98"  y1="695" x2="202" y2="695" />
+        </g>
+      </g>
+    </svg>
+
+    <div class="motes" id="motes"></div>
+
+    <div class="showcase-inner">
+      <div class="showcase-brand">
+        <span class="brand-mark">🧬</span>
+        <div>
+          <strong>PubMed Semantic Search</strong>
+          <span>Retrieval-Augmented Generation</span>
+        </div>
+      </div>
+
+      <h2 class="showcase-head">
+        Search the literature<br />by <em>meaning</em>, not keywords.
+      </h2>
+
+      <div class="showcase-rotator" id="rotator">
+        <article class="rot active">
+          <h3>Ask in plain English</h3>
+          <p>Your question is expanded with NCBI's MeSH mapping — no Boolean
+             operators, no wildcards, no truncation rules to memorise.</p>
+        </article>
+        <article class="rot">
+          <h3>Ranked by semantics</h3>
+          <p>Abstracts are embedded locally and re-ranked with a hybrid
+             semantic + BM25 scorer, so vocabulary mismatches stop hiding
+             the paper you needed.</p>
+        </article>
+        <article class="rot">
+          <h3>Answers that cite</h3>
+          <p>Every sentence of an answer is lifted verbatim from a retrieved
+             abstract and tagged with its PMID. Nothing is invented.</p>
+        </article>
+        <article class="rot">
+          <h3>Chat with any paper</h3>
+          <p>Open a result and ask it questions. It quotes the abstract back
+             with a confidence score — and says so when it doesn't know.</p>
+        </article>
+        <article class="rot">
+          <h3>Export in one click</h3>
+          <p>Vancouver/NLM citations as PDF, BibTeX or RIS — a reference list
+             or a full report with the answer and every abstract.</p>
+        </article>
+      </div>
+
+      <div class="showcase-dots" id="dots"></div>
+
+      <p class="showcase-foot">
+        Data from NCBI PubMed via E-utilities · no API key required ·
+        embeddings run on your machine
+      </p>
+    </div>
+  </section>
+
+  <!-- =============================== right: the form ================== -->
+  <main class="auth-panel">
+    <div class="auth-card">
+
+      <header class="auth-head">
+        <span class="auth-mark">🧬</span>
+        <h1 id="auth-title">Welcome back</h1>
+        <p id="auth-sub">Sign in to pick up your searches where you left them.</p>
+      </header>
+
+      {% if first_run %}
+      <div class="auth-note info" id="first-run-note">
+        <strong>First run.</strong> No accounts exist yet — create yours to get started.
+        {% if not allow_signup %}Sign-ups are disabled in config.{% endif %}
+      </div>
+      {% endif %}
+
+      {% if allow_signup %}
+      <div class="seg" role="tablist" aria-label="Login or sign up">
+        <span class="seg-glider" id="seg-glider"></span>
+        <button class="seg-btn active" id="tab-login"  role="tab" aria-selected="true"  type="button">Sign in</button>
+        <button class="seg-btn"        id="tab-signup" role="tab" aria-selected="false" type="button">Create account</button>
+      </div>
+      {% endif %}
+
+      <div class="auth-error" id="auth-error" hidden></div>
+
+      <!-- ------------------------------- login ------------------------ -->
+      <form class="auth-form" id="login-form" autocomplete="on" novalidate>
+        <label class="field">
+          <span>Email</span>
+          <input id="login-email" name="email" type="email" inputmode="email"
+                 autocomplete="username" placeholder="you@university.edu" required />
+          <small class="field-err" data-err="email"></small>
+        </label>
+
+        <label class="field">
+          <span>Password</span>
+          <span class="pw-wrap">
+            <input id="login-password" name="password" type="password"
+                   autocomplete="current-password" placeholder="••••••••" required />
+            <button type="button" class="pw-eye" data-toggle="login-password"
+                    aria-label="Show password">👁</button>
+          </span>
+          <small class="field-err" data-err="password"></small>
+        </label>
+
+        <label class="remember">
+          <input type="checkbox" id="login-remember" />
+          <span>Keep me signed in for 30 days</span>
+        </label>
+
+        <button type="submit" class="btn-primary btn-block" id="login-submit">
+          <span class="btn-label">Sign in</span>
+        </button>
+      </form>
+
+      <!-- ------------------------------- signup ----------------------- -->
+      {% if allow_signup %}
+      <form class="auth-form" id="signup-form" autocomplete="on" novalidate hidden>
+        <label class="field">
+          <span>Full name</span>
+          <input id="signup-name" name="name" type="text" autocomplete="name"
+                 placeholder="Arul Arasu" required />
+          <small class="field-err" data-err="name"></small>
+        </label>
+
+        <label class="field">
+          <span>Email</span>
+          <input id="signup-email" name="email" type="email" inputmode="email"
+                 autocomplete="username" placeholder="you@university.edu" required />
+          <small class="field-err" data-err="email"></small>
+        </label>
+
+        <label class="field">
+          <span>Password</span>
+          <span class="pw-wrap">
+            <input id="signup-password" name="password" type="password"
+                   autocomplete="new-password" placeholder="At least 8 characters" required />
+            <button type="button" class="pw-eye" data-toggle="signup-password"
+                    aria-label="Show password">👁</button>
+          </span>
+          <span class="meter" id="pw-meter" hidden>
+            <span class="meter-track"><i id="pw-bar"></i></span>
+            <span class="meter-label" id="pw-label">Very weak</span>
+          </span>
+          <small class="field-err" data-err="password"></small>
+        </label>
+
+        <label class="field">
+          <span>Confirm password</span>
+          <input id="signup-confirm" name="confirm" type="password"
+                 autocomplete="new-password" placeholder="Type it again" required />
+          <small class="field-err" data-err="confirm"></small>
+        </label>
+
+        <button type="submit" class="btn-primary btn-block" id="signup-submit">
+          <span class="btn-label">Create account</span>
+        </button>
+
+        <p class="fineprint">
+          Your searches, saved history and paper conversations are private to
+          your account. Everything is stored locally in this app's SQLite
+          database — nothing is sent to a third-party service.
+        </p>
+      </form>
+      {% endif %}
+
+      <footer class="auth-foot">
+        <span>PubMed Semantic Search · v{{ app_version }}</span>
+      </footer>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+  window.AUTH_CONFIG = {
+    startMode: {{ start_mode | tojson }},
+    nextUrl: {{ next_url | tojson }},
+    allowSignup: {{ allow_signup | tojson }},
+    firstRun: {{ first_run | tojson }}
+  };
+</script>
+<script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+</body>
+</html>
